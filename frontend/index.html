@@ -506,105 +506,11 @@
         let chart = null;
         let currentData = null;
         let currentTab = 'inflow';
+        let autoRefreshTimer = null;
+        const REFRESH_INTERVAL = 30000;
 
-        // ========== 内嵌数据生成（GitHub Pages 独立运行） ==========
-        const SECTORS = [
-            '有色金属', '人形机器人', '电力', '锂矿', '网络游戏', '煤炭',
-            '创新药', '银行II', '电网设备', '白酒', 'AI应用', '化工',
-            '光学光电子', '电力设备', '锂电池', '证券', '半导体设备', 'MLCC',
-            '商业航天', '储能', '消费电子', '玻璃基板', '液冷服务器', '光纤',
-            'PCB', '算力租赁', '人工智能', 'CPO', '半导体', '存储芯片', '通信技术'
-        ];
-
-        const BASE_FLOWS = [
-            47.15, 32.80, 24.06, 18.25, 13.89, 4.17,
-            2.90, 0.17, -0.83, -0.91, -11.76, -12.40,
-            -12.83, -14.64, -18.96, -25.90, -27.32, -35.31,
-            -46.35, -53.36, -54.40, -57.44, -62.50, -76.59,
-            -110.64, -119.65, -140.58, -156.68, -228.33, -259.25, -280.88
-        ];
-
-        function generateTimePoints() {
-            const times = [];
-            for (let h = 9; h <= 11; h++) {
-                const start = h === 9 ? 30 : 0;
-                const end = h === 11 ? 30 : 60;
-                for (let m = start; m < end; m += 5) times.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
-            }
-            for (let h = 13; h <= 14; h++) {
-                for (let m = 0; m < 60; m += 5) times.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
-            }
-            times.push('15:00');
-            return times;
-        }
-
-        function generateFlowSeries(times, finalValue) {
-            const n = times.length;
-            const flows = [];
-            for (let i = 0; i < n; i++) {
-                const t = i / Math.max(n - 1, 1);
-                const base = finalValue * Math.pow(t, 0.7);
-                const noise = (Math.random() - 0.5) * 2 * Math.abs(finalValue) * 0.08;
-                const wave = Math.abs(finalValue) * 0.05 * (2 * Math.random() - 1);
-                flows.push(+(base + noise + wave).toFixed(2));
-            }
-            if (flows.length) flows[flows.length - 1] = finalValue;
-            return flows;
-        }
-
-        function generateData() {
-            const now = new Date();
-            const times = generateTimePoints();
-            const sectorsData = [];
-
-            for (let i = 0; i < SECTORS.length; i++) {
-                const baseFlow = BASE_FLOWS[i] + (Math.random() - 0.5) * 10;
-                sectorsData.push({
-                    name: SECTORS[i],
-                    final_flow: +baseFlow.toFixed(2),
-                    flow_data: generateFlowSeries(times, +baseFlow.toFixed(2)),
-                });
-            }
-            sectorsData.sort((a, b) => b.final_flow - a.final_flow);
-
-            const h = now.getHours(), m = now.getMinutes();
-            const total = h * 60 + m;
-            const isTrading = (9*60+30 <= total && total <= 11*60+30) || (13*60 <= total && total <= 15*60);
-
-            return {
-                date: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,
-                time: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,
-                is_trading: isTrading,
-                times, sectors: sectorsData,
-            };
-        }
-
-        // ========== 尝试从远程 API 获取真实数据，失败则用内嵌数据 ==========
-        async function fetchData() {
-            showLoading();
-            try {
-                // 尝试调用同域或远程 API
-                const resp = await fetch('/api/fund-flow', { signal: AbortSignal.timeout(5000) });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    applyData(data);
-                    return;
-                }
-            } catch (e) { /* ignore */ }
-            // 回退到内嵌模拟数据
-            const data = generateData();
-            applyData(data);
-            hideLoading();
-        }
-
-        function applyData(data) {
-            currentData = data;
-            updateHeader(data);
-            updateChart(data);
-            updateStats(data.sectors);
-            updateRanking(data.sectors);
-            hideLoading();
-        }
+        const EASTMONEY_API = 'https://push2.eastmoney.com/api/qt';
+        const FIELDS = 'f12,f14,f2,f3,f62,f184,f66,f69,f72,f75,f78,f81,f84,f87';
 
         function initChart() {
             const chartDom = document.getElementById('fundFlowChart');
@@ -612,26 +518,23 @@
             window.addEventListener('resize', () => chart.resize());
         }
 
-        function getColorByValue(value) {
-            if (value > 0) {
-                return '#ff4757';
-            } else if (value < 0) {
-                return '#2ed573';
-            }
-            return '#ffa502';
-        }
-
         function getColorList(sectors) {
-            const colors = [
+            const inflowColors = [
                 '#ff4757', '#ff6b81', '#ff7f50', '#ffa502', '#ffbe76',
                 '#f6b93b', '#e58e26', '#fa983a', '#f8c291', '#e55039',
-                '#eb2f06', '#b71540',
-                '#6ab04c', '#badc58', '#7bed9f', '#2ed573', '#1abc9c',
-                '#16a085', '#00b894', '#55efc4', '#00cec9', '#0984e3',
-                '#74b9ff', '#0984e3', '#6c5ce7', '#a29bfe', '#fd79a8',
-                '#e84393', '#636e72', '#b2bec3', '#2d3436'
+                '#eb2f06', '#b71540', '#ff3838', '#ff5252', '#ff6348'
             ];
-            return colors.slice(0, sectors.length);
+            const outflowColors = [
+                '#2ed573', '#1abc9c', '#00b894', '#55efc4', '#00cec9',
+                '#0984e3', '#74b9ff', '#6c5ce7', '#a29bfe', '#00b894',
+                '#55efc4', '#00cec9', '#0984e3', '#74b9ff', '#6c5ce7'
+            ];
+            const inflow = sectors.filter(s => s.final_flow >= 0);
+            const outflow = sectors.filter(s => s.final_flow < 0);
+            return [
+                ...inflowColors.slice(0, inflow.length),
+                ...outflowColors.slice(0, outflow.length)
+            ];
         }
 
         function updateChart(data) {
@@ -642,7 +545,6 @@
             const colors = getColorList(sectors);
 
             sectors.forEach((sector, index) => {
-                const color = sector.final_flow >= 0 ? '#ff4757' : '#2ed573';
                 series.push({
                     name: sector.name,
                     type: 'line',
@@ -655,30 +557,27 @@
                     },
                     emphasis: {
                         focus: 'series',
-                        lineStyle: {
-                            width: 3
-                        }
+                        lineStyle: { width: 3 }
                     }
                 });
             });
+
+            const maxVal = Math.max(...sectors.map(s => s.final_flow), 0);
+            const minVal = Math.min(...sectors.map(s => s.final_flow), 0);
+            const padding = Math.max(Math.abs(maxVal), Math.abs(minVal)) * 0.15;
 
             const option = {
                 backgroundColor: '#fff',
                 tooltip: {
                     trigger: 'axis',
-                    axisPointer: {
-                        type: 'cross'
-                    },
+                    axisPointer: { type: 'cross' },
                     backgroundColor: 'rgba(50, 50, 50, 0.9)',
                     borderColor: 'transparent',
-                    textStyle: {
-                        color: '#fff',
-                        fontSize: 12
-                    },
+                    textStyle: { color: '#fff', fontSize: 12 },
                     formatter: function(params) {
                         let result = `<div style="font-weight:bold;margin-bottom:6px;">${params[0].axisValue}</div>`;
-                        const sortedParams = [...params].sort((a, b) => b.value - a.value);
-                        sortedParams.forEach(param => {
+                        const sorted = [...params].sort((a, b) => b.value - a.value);
+                        sorted.forEach(param => {
                             const color = param.value >= 0 ? '#ff4757' : '#2ed573';
                             const sign = param.value >= 0 ? '+' : '';
                             result += `<div style="display:flex;justify-content:space-between;gap:15px;margin:3px 0;">
@@ -689,64 +588,34 @@
                         return result;
                     }
                 },
-                legend: {
-                    show: false
-                },
-                grid: {
-                    left: '12%',
-                    right: '3%',
-                    top: '3%',
-                    bottom: '8%'
-                },
+                grid: { left: '12%', right: '3%', top: '3%', bottom: '8%' },
                 xAxis: {
                     type: 'category',
                     data: times,
                     boundaryGap: false,
-                    axisLine: {
-                        lineStyle: { color: '#e0e0e0' }
-                    },
+                    axisLine: { lineStyle: { color: '#e0e0e0' } },
                     axisLabel: {
-                        color: '#999',
-                        fontSize: 11,
-                        interval: function(index, value) {
-                            const minutes = parseInt(value.split(':')[0]) * 60 + parseInt(value.split(':')[1]);
-                            return minutes % 60 === 0;
+                        color: '#999', fontSize: 11,
+                        interval: function(idx, val) {
+                            const m = parseInt(val.split(':')[0]) * 60 + parseInt(val.split(':')[1]);
+                            return m % 60 === 0;
                         }
                     },
-                    splitLine: {
-                        show: false
-                    }
+                    splitLine: { show: false }
                 },
                 yAxis: {
                     type: 'value',
-                    axisLine: {
-                        show: false
-                    },
+                    min: -Math.ceil(Math.abs(minVal) + padding),
+                    max: Math.ceil(Math.abs(maxVal) + padding),
+                    axisLine: { show: false },
                     axisLabel: {
-                        color: '#999',
-                        fontSize: 11,
-                        formatter: function(value) {
-                            return value + '亿';
-                        }
+                        color: '#999', fontSize: 11,
+                        formatter: v => v + '亿'
                     },
-                    splitLine: {
-                        lineStyle: {
-                            color: '#f0f0f0',
-                            type: 'dashed'
-                        }
-                    },
-                    axisTick: {
-                        show: false
-                    }
+                    splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } },
+                    axisTick: { show: false }
                 },
-                dataZoom: [
-                    {
-                        type: 'inside',
-                        xAxisIndex: [0],
-                        start: 0,
-                        end: 100
-                    }
-                ],
+                dataZoom: [{ type: 'inside', xAxisIndex: [0], start: 0, end: 100 }],
                 series: series
             };
 
@@ -755,38 +624,33 @@
 
         function updateStats(sectors) {
             if (!sectors || sectors.length === 0) return;
-
             const sorted = [...sectors].sort((a, b) => b.final_flow - a.final_flow);
-            const topInflow = sorted[0];
-            const topOutflow = sorted[sorted.length - 1];
+            const topIn = sorted[0];
+            const topOut = sorted[sorted.length - 1];
 
-            document.getElementById('topInflowName').textContent = topInflow.name;
-            document.getElementById('topInflowValue').textContent = '+' + topInflow.final_flow.toFixed(2) + '亿';
-
-            document.getElementById('topOutflowName').textContent = topOutflow.name;
-            document.getElementById('topOutflowValue').textContent = topOutflow.final_flow.toFixed(2) + '亿';
+            document.getElementById('topInflowName').textContent = topIn.name;
+            document.getElementById('topInflowValue').textContent = '+' + topIn.final_flow.toFixed(2) + '亿';
+            document.getElementById('topOutflowName').textContent = topOut.name;
+            document.getElementById('topOutflowValue').textContent = topOut.final_flow.toFixed(2) + '亿';
         }
 
         function updateRanking(sectors) {
             const list = document.getElementById('rankingList');
             const sorted = [...sectors].sort((a, b) => b.final_flow - a.final_flow);
-            const displayList = currentTab === 'inflow'
+            const display = currentTab === 'inflow'
                 ? sorted.filter(s => s.final_flow > 0).slice(0, 15)
                 : sorted.filter(s => s.final_flow < 0).slice().reverse().slice(0, 15);
 
-            list.innerHTML = displayList.map((sector, index) => {
-                const isPositive = sector.final_flow >= 0;
-                const valueClass = isPositive ? 'positive' : 'negative';
-                const sign = isPositive ? '+' : '';
-                const topClass = index < 3 ? `top${index + 1}` : '';
-
-                return `
-                    <div class="ranking-item">
-                        <div class="rank-num ${topClass}">${index + 1}</div>
-                        <div class="rank-name">${sector.name}</div>
-                        <div class="rank-value ${valueClass}">${sign}${sector.final_flow.toFixed(2)}亿</div>
-                    </div>
-                `;
+            list.innerHTML = display.map((s, i) => {
+                const pos = s.final_flow >= 0;
+                const vc = pos ? 'positive' : 'negative';
+                const sign = pos ? '+' : '';
+                const tc = i < 3 ? `top${i + 1}` : '';
+                return `<div class="ranking-item">
+                    <div class="rank-num ${tc}">${i + 1}</div>
+                    <div class="rank-name">${s.name}</div>
+                    <div class="rank-value ${vc}">${sign}${s.final_flow.toFixed(2)}亿</div>
+                </div>`;
             }).join('');
         }
 
@@ -794,39 +658,109 @@
             document.getElementById('titleDate').textContent = data.date + ' 资金流向';
             document.getElementById('updateTime').textContent = '更新: ' + data.time;
 
-            const statusEl = document.getElementById('tradingStatus');
-            const statusText = document.getElementById('statusText');
-
+            const el = document.getElementById('tradingStatus');
+            const txt = document.getElementById('statusText');
             if (data.is_trading) {
-                statusEl.className = 'trading-status active';
-                statusText.textContent = '交易中';
+                el.className = 'trading-status active';
+                txt.textContent = '交易中';
             } else {
-                statusEl.className = 'trading-status inactive';
-                statusText.textContent = '休市中';
+                el.className = 'trading-status inactive';
+                txt.textContent = '休市中';
+            }
+        }
+
+        function isTradingTime() {
+            const now = new Date();
+            const total = now.getHours() * 60 + now.getMinutes();
+            return (9*60+30 <= total && total <= 11*60+30) || (13*60 <= total && total <= 15*60);
+        }
+
+        async function fetchSectorList() {
+            const url = `${EASTMONEY_API}/clist/get?pn=1&pz=50&po=1&np=1&ut=b2884a393a59ad64002292a3e90d46a5&fltt=2&invt=2&fid=f62&fs=m:90+t:2&fields=${FIELDS}`;
+            const resp = await fetch(url);
+            const json = await resp.json();
+            if (!json.data || !json.data.diff) return [];
+            return json.data.diff.map(item => ({
+                code: item.f12,
+                name: item.f14,
+                main_net_inflow: item.f62 || 0,
+                change_percent: item.f3 || 0,
+            }));
+        }
+
+        async function fetchIntradayFlow(secid) {
+            const url = `${EASTMONEY_API}/stock/fflow/kline/get?lmt=0&klt=1&secid=${secid}&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63&ut=b2884a393a59ad64002292a3e90d46a5`;
+            try {
+                const resp = await fetch(url);
+                const json = await resp.json();
+                if (!json.data || !json.data.klines) return { times: [], values: [] };
+                const klines = json.data.klines;
+                const times = [];
+                const values = [];
+                klines.forEach(line => {
+                    const parts = line.split(',');
+                    if (parts.length >= 2) {
+                        times.push(parts[0]);
+                        values.push(parseFloat(parts[1]) / 100000000);
+                    }
+                });
+                return { times, values };
+            } catch (e) {
+                return { times: [], values: [] };
             }
         }
 
         async function fetchData() {
             showLoading();
             try {
-                const url = useMockData
-                    ? `${API_BASE}/api/fund-flow?mock=true`
-                    : `${API_BASE}/api/fund-flow`;
+                const sectors = await fetchSectorList();
+                if (sectors.length === 0) throw new Error('无数据');
 
-                const response = await fetch(url);
-                const data = await response.json();
+                const topIn = sectors.slice(0, 15);
+                const topOut = sectors.slice(-15).reverse();
+                const selected = [...topIn, ...topOut].filter((s, i, arr) =>
+                    arr.findIndex(x => x.code === s.code) === i
+                );
+
+                const timesSet = new Set();
+                const sectorsData = [];
+
+                for (const s of selected) {
+                    const secid = `90.${s.code}`;
+                    const { times, values } = await fetchIntradayFlow(secid);
+                    times.forEach(t => timesSet.add(t));
+                    sectorsData.push({
+                        name: s.name,
+                        code: s.code,
+                        final_flow: +(s.main_net_inflow / 100000000).toFixed(2),
+                        change_percent: s.change_percent,
+                        flow_data: values.map(v => +v.toFixed(2)),
+                    });
+                }
+
+                const times = Array.from(timesSet).sort();
+                sectorsData.sort((a, b) => b.final_flow - a.final_flow);
+
+                const now = new Date();
+                const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+                const data = {
+                    date: dateStr,
+                    time: timeStr,
+                    is_trading: isTradingTime(),
+                    times: times,
+                    sectors: sectorsData,
+                };
+
                 currentData = data;
-
                 updateHeader(data);
                 updateChart(data);
-                updateStats(data.sectors);
-                updateRanking(data.sectors);
-            } catch (error) {
-                console.error('获取数据失败:', error);
-                if (!useMockData) {
-                    useMockData = true;
-                    fetchData();
-                }
+                updateStats(sectorsData);
+                updateRanking(sectorsData);
+            } catch (err) {
+                console.error('获取真实数据失败:', err);
+                alert('获取数据失败，请刷新重试');
             } finally {
                 hideLoading();
             }
@@ -835,22 +769,17 @@
         function refreshData() {
             const btn = document.getElementById('refreshBtn');
             if (btn.classList.contains('loading')) return;
-
             btn.classList.add('loading');
-            // GitHub Pages 静态版本：重新生成模拟数据
-            const data = generateData();
-            applyData(data);
-            setTimeout(() => btn.classList.remove('loading'), 500);
+            fetchData().finally(() => {
+                setTimeout(() => btn.classList.remove('loading'), 500);
+            });
         }
 
         function switchTab(tab) {
             currentTab = tab;
             document.getElementById('inflowTab').classList.toggle('active', tab === 'inflow');
             document.getElementById('outflowTab').classList.toggle('active', tab === 'outflow');
-
-            if (currentData) {
-                updateRanking(currentData.sectors);
-            }
+            if (currentData) updateRanking(currentData.sectors);
         }
 
         function showLoading() {
@@ -861,18 +790,26 @@
             document.getElementById('loadingMask').classList.remove('show');
         }
 
-        function showLoading() {
-            document.getElementById('loadingMask').classList.add('show');
-        }
-
-        function hideLoading() {
-            document.getElementById('loadingMask').classList.remove('show');
+        function startAutoRefresh() {
+            if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+            autoRefreshTimer = setInterval(() => {
+                if (isTradingTime()) fetchData();
+            }, REFRESH_INTERVAL);
         }
 
         function init() {
             initChart();
-            const data = generateData();
-            applyData(data);
+            fetchData();
+            startAutoRefresh();
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+                } else {
+                    fetchData();
+                    startAutoRefresh();
+                }
+            });
         }
 
         document.addEventListener('DOMContentLoaded', init);
