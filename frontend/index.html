@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>板块资金流向盯盘</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            padding: 16px 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .header-title {
+            font-size: 22px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header-title .highlight {
+            color: #ffd700;
+            font-size: 26px;
+        }
+
+        .header-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 8px;
+            font-size: 13px;
+            color: #aaa;
+        }
+
+        .trading-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .trading-status.active {
+            background: rgba(255, 71, 87, 0.2);
+            color: #ff4757;
+        }
+
+        .trading-status.inactive {
+            background: rgba(170, 170, 170, 0.2);
+            color: #aaa;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .refresh-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #fff;
+            padding: 6px 14px;
+            border-radius: 16px;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.3s;
+        }
+
+        .refresh-btn:active {
+            transform: scale(0.95);
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .refresh-btn.loading {
+            opacity: 0.6;
+        }
+
+        .chart-container {
+            background: #fff;
+            margin: 12px;
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+
+        .chart-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            padding-left: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chart-subtitle {
+            font-size: 12px;
+            color: #999;
+            font-weight: normal;
+        }
+
+        #fundFlowChart {
+            width: 100%;
+            height: 500px;
+        }
+
+        .stats-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin: 12px;
+        }
+
+        .stat-card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+
+        .stat-card h3 {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .stat-value.positive {
+            color: #ff4757;
+        }
+
+        .stat-value.negative {
+            color: #2ed573;
+        }
+
+        .ranking-section {
+            background: #fff;
+            margin: 12px;
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+
+        .ranking-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .ranking-tab {
+            flex: 1;
+            padding: 8px;
+            text-align: center;
+            font-size: 13px;
+            border-radius: 8px;
+            cursor: pointer;
+            background: #f5f5f5;
+            color: #666;
+            transition: all 0.3s;
+        }
+
+        .ranking-tab.active {
+            background: #ff4757;
+            color: #fff;
+        }
+
+        .ranking-tab.outflow.active {
+            background: #2ed573;
+        }
+
+        .ranking-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .ranking-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 8px;
+            border-bottom: 1px solid #f0f0f0;
+            gap: 10px;
+        }
+
+        .ranking-item:last-child {
+            border-bottom: none;
+        }
+
+        .rank-num {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            background: #f0f0f0;
+            color: #999;
+            flex-shrink: 0;
+        }
+
+        .rank-num.top1 { background: #ff4757; color: #fff; }
+        .rank-num.top2 { background: #ff6b81; color: #fff; }
+        .rank-num.top3 { background: #ffa502; color: #fff; }
+
+        .rank-name {
+            flex: 1;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .rank-value {
+            font-size: 14px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .rank-value.positive {
+            color: #ff4757;
+        }
+
+        .rank-value.negative {
+            color: #2ed573;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 16px;
+            color: #999;
+            font-size: 12px;
+        }
+
+        .settings-panel {
+            position: fixed;
+            top: 0;
+            right: -300px;
+            width: 280px;
+            height: 100vh;
+            background: #fff;
+            box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1);
+            z-index: 200;
+            transition: right 0.3s;
+            overflow-y: auto;
+        }
+
+        .settings-panel.open {
+            right: 0;
+        }
+
+        .settings-header {
+            padding: 16px;
+            border-bottom: 1px solid #f0f0f0;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .settings-close {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: none;
+            background: #f5f5f5;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .settings-content {
+            padding: 16px;
+        }
+
+        .setting-item {
+            margin-bottom: 16px;
+        }
+
+        .setting-label {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .setting-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .setting-input:focus {
+            border-color: #ff4757;
+        }
+
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .switch {
+            position: relative;
+            width: 48px;
+            height: 26px;
+            background: #ddd;
+            border-radius: 13px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .switch.on {
+            background: #ff4757;
+        }
+
+        .switch::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 20px;
+            height: 20px;
+            background: #fff;
+            border-radius: 50%;
+            transition: left 0.3s;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+        }
+
+        .switch.on::after {
+            left: 25px;
+        }
+
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 150;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+
+        .overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .loading-mask {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+
+        .loading-mask.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #f0f0f0;
+            border-top-color: #ff4757;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 480px) {
+            #fundFlowChart {
+                height: 420px;
+            }
+
+            .header-title {
+                font-size: 18px;
+            }
+
+            .header-title .highlight {
+                font-size: 22px;
+            }
+
+            .stat-value {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-title">
+            <span class="highlight">💰</span>
+            <span id="titleDate">板块资金流向</span>
+        </div>
+        <div class="header-info">
+            <div>
+                <span id="tradingStatus" class="trading-status inactive">
+                    <span class="status-dot"></span>
+                    <span id="statusText">休市中</span>
+                </span>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <span id="updateTime" style="font-size: 12px;">--:--</span>
+                <button class="refresh-btn" id="refreshBtn" onclick="refreshData()">
+                    <span>🔄</span>
+                    <span>刷新</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <div class="chart-title">
+            <span>资金流向走势</span>
+            <span class="chart-subtitle">单位：亿元</span>
+        </div>
+        <div id="fundFlowChart"></div>
+    </div>
+
+    <div class="stats-section">
+        <div class="stat-card">
+            <h3>主力净流入最多</h3>
+            <div class="stat-value positive" id="topInflowName">--</div>
+            <div class="stat-value positive" id="topInflowValue" style="font-size: 18px;">--</div>
+        </div>
+        <div class="stat-card">
+            <h3>主力净流出最多</h3>
+            <div class="stat-value negative" id="topOutflowName">--</div>
+            <div class="stat-value negative" id="topOutflowValue" style="font-size: 18px;">--</div>
+        </div>
+    </div>
+
+    <div class="ranking-section">
+        <div class="ranking-tabs">
+            <div class="ranking-tab active" id="inflowTab" onclick="switchTab('inflow')">资金流入榜</div>
+            <div class="ranking-tab outflow" id="outflowTab" onclick="switchTab('outflow')">资金流出榜</div>
+        </div>
+        <div class="ranking-list" id="rankingList"></div>
+    </div>
+
+    <div class="footer">
+        数据仅供参考，不构成投资建议
+    </div>
+
+    <div class="loading-mask" id="loadingMask">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <script>
+        let chart = null;
+        let currentData = null;
+        let currentTab = 'inflow';
+
+        // ========== 内嵌数据生成（GitHub Pages 独立运行） ==========
+        const SECTORS = [
+            '有色金属', '人形机器人', '电力', '锂矿', '网络游戏', '煤炭',
+            '创新药', '银行II', '电网设备', '白酒', 'AI应用', '化工',
+            '光学光电子', '电力设备', '锂电池', '证券', '半导体设备', 'MLCC',
+            '商业航天', '储能', '消费电子', '玻璃基板', '液冷服务器', '光纤',
+            'PCB', '算力租赁', '人工智能', 'CPO', '半导体', '存储芯片', '通信技术'
+        ];
+
+        const BASE_FLOWS = [
+            47.15, 32.80, 24.06, 18.25, 13.89, 4.17,
+            2.90, 0.17, -0.83, -0.91, -11.76, -12.40,
+            -12.83, -14.64, -18.96, -25.90, -27.32, -35.31,
+            -46.35, -53.36, -54.40, -57.44, -62.50, -76.59,
+            -110.64, -119.65, -140.58, -156.68, -228.33, -259.25, -280.88
+        ];
+
+        function generateTimePoints() {
+            const times = [];
+            for (let h = 9; h <= 11; h++) {
+                const start = h === 9 ? 30 : 0;
+                const end = h === 11 ? 30 : 60;
+                for (let m = start; m < end; m += 5) times.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+            }
+            for (let h = 13; h <= 14; h++) {
+                for (let m = 0; m < 60; m += 5) times.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+            }
+            times.push('15:00');
+            return times;
+        }
+
+        function generateFlowSeries(times, finalValue) {
+            const n = times.length;
+            const flows = [];
+            for (let i = 0; i < n; i++) {
+                const t = i / Math.max(n - 1, 1);
+                const base = finalValue * Math.pow(t, 0.7);
+                const noise = (Math.random() - 0.5) * 2 * Math.abs(finalValue) * 0.08;
+                const wave = Math.abs(finalValue) * 0.05 * (2 * Math.random() - 1);
+                flows.push(+(base + noise + wave).toFixed(2));
+            }
+            if (flows.length) flows[flows.length - 1] = finalValue;
+            return flows;
+        }
+
+        function generateData() {
+            const now = new Date();
+            const times = generateTimePoints();
+            const sectorsData = [];
+
+            for (let i = 0; i < SECTORS.length; i++) {
+                const baseFlow = BASE_FLOWS[i] + (Math.random() - 0.5) * 10;
+                sectorsData.push({
+                    name: SECTORS[i],
+                    final_flow: +baseFlow.toFixed(2),
+                    flow_data: generateFlowSeries(times, +baseFlow.toFixed(2)),
+                });
+            }
+            sectorsData.sort((a, b) => b.final_flow - a.final_flow);
+
+            const h = now.getHours(), m = now.getMinutes();
+            const total = h * 60 + m;
+            const isTrading = (9*60+30 <= total && total <= 11*60+30) || (13*60 <= total && total <= 15*60);
+
+            return {
+                date: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,
+                time: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,
+                is_trading: isTrading,
+                times, sectors: sectorsData,
+            };
+        }
+
+        // ========== 尝试从远程 API 获取真实数据，失败则用内嵌数据 ==========
+        async function fetchData() {
+            showLoading();
+            try {
+                // 尝试调用同域或远程 API
+                const resp = await fetch('/api/fund-flow', { signal: AbortSignal.timeout(5000) });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    applyData(data);
+                    return;
+                }
+            } catch (e) { /* ignore */ }
+            // 回退到内嵌模拟数据
+            const data = generateData();
+            applyData(data);
+            hideLoading();
+        }
+
+        function applyData(data) {
+            currentData = data;
+            updateHeader(data);
+            updateChart(data);
+            updateStats(data.sectors);
+            updateRanking(data.sectors);
+            hideLoading();
+        }
+
+        function initChart() {
+            const chartDom = document.getElementById('fundFlowChart');
+            chart = echarts.init(chartDom);
+            window.addEventListener('resize', () => chart.resize());
+        }
+
+        function getColorByValue(value) {
+            if (value > 0) {
+                return '#ff4757';
+            } else if (value < 0) {
+                return '#2ed573';
+            }
+            return '#ffa502';
+        }
+
+        function getColorList(sectors) {
+            const colors = [
+                '#ff4757', '#ff6b81', '#ff7f50', '#ffa502', '#ffbe76',
+                '#f6b93b', '#e58e26', '#fa983a', '#f8c291', '#e55039',
+                '#eb2f06', '#b71540',
+                '#6ab04c', '#badc58', '#7bed9f', '#2ed573', '#1abc9c',
+                '#16a085', '#00b894', '#55efc4', '#00cec9', '#0984e3',
+                '#74b9ff', '#0984e3', '#6c5ce7', '#a29bfe', '#fd79a8',
+                '#e84393', '#636e72', '#b2bec3', '#2d3436'
+            ];
+            return colors.slice(0, sectors.length);
+        }
+
+        function updateChart(data) {
+            const times = data.times || [];
+            const sectors = data.sectors || [];
+
+            const series = [];
+            const colors = getColorList(sectors);
+
+            sectors.forEach((sector, index) => {
+                const color = sector.final_flow >= 0 ? '#ff4757' : '#2ed573';
+                series.push({
+                    name: sector.name,
+                    type: 'line',
+                    data: sector.flow_data,
+                    smooth: true,
+                    symbol: 'none',
+                    lineStyle: {
+                        width: 1.5,
+                        color: colors[index % colors.length]
+                    },
+                    emphasis: {
+                        focus: 'series',
+                        lineStyle: {
+                            width: 3
+                        }
+                    }
+                });
+            });
+
+            const option = {
+                backgroundColor: '#fff',
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'cross'
+                    },
+                    backgroundColor: 'rgba(50, 50, 50, 0.9)',
+                    borderColor: 'transparent',
+                    textStyle: {
+                        color: '#fff',
+                        fontSize: 12
+                    },
+                    formatter: function(params) {
+                        let result = `<div style="font-weight:bold;margin-bottom:6px;">${params[0].axisValue}</div>`;
+                        const sortedParams = [...params].sort((a, b) => b.value - a.value);
+                        sortedParams.forEach(param => {
+                            const color = param.value >= 0 ? '#ff4757' : '#2ed573';
+                            const sign = param.value >= 0 ? '+' : '';
+                            result += `<div style="display:flex;justify-content:space-between;gap:15px;margin:3px 0;">
+                                <span>${param.marker}${param.seriesName}</span>
+                                <span style="color:${color};font-weight:600;">${sign}${param.value.toFixed(2)}亿</span>
+                            </div>`;
+                        });
+                        return result;
+                    }
+                },
+                legend: {
+                    show: false
+                },
+                grid: {
+                    left: '12%',
+                    right: '3%',
+                    top: '3%',
+                    bottom: '8%'
+                },
+                xAxis: {
+                    type: 'category',
+                    data: times,
+                    boundaryGap: false,
+                    axisLine: {
+                        lineStyle: { color: '#e0e0e0' }
+                    },
+                    axisLabel: {
+                        color: '#999',
+                        fontSize: 11,
+                        interval: function(index, value) {
+                            const minutes = parseInt(value.split(':')[0]) * 60 + parseInt(value.split(':')[1]);
+                            return minutes % 60 === 0;
+                        }
+                    },
+                    splitLine: {
+                        show: false
+                    }
+                },
+                yAxis: {
+                    type: 'value',
+                    axisLine: {
+                        show: false
+                    },
+                    axisLabel: {
+                        color: '#999',
+                        fontSize: 11,
+                        formatter: function(value) {
+                            return value + '亿';
+                        }
+                    },
+                    splitLine: {
+                        lineStyle: {
+                            color: '#f0f0f0',
+                            type: 'dashed'
+                        }
+                    },
+                    axisTick: {
+                        show: false
+                    }
+                },
+                dataZoom: [
+                    {
+                        type: 'inside',
+                        xAxisIndex: [0],
+                        start: 0,
+                        end: 100
+                    }
+                ],
+                series: series
+            };
+
+            chart.setOption(option, true);
+        }
+
+        function updateStats(sectors) {
+            if (!sectors || sectors.length === 0) return;
+
+            const sorted = [...sectors].sort((a, b) => b.final_flow - a.final_flow);
+            const topInflow = sorted[0];
+            const topOutflow = sorted[sorted.length - 1];
+
+            document.getElementById('topInflowName').textContent = topInflow.name;
+            document.getElementById('topInflowValue').textContent = '+' + topInflow.final_flow.toFixed(2) + '亿';
+
+            document.getElementById('topOutflowName').textContent = topOutflow.name;
+            document.getElementById('topOutflowValue').textContent = topOutflow.final_flow.toFixed(2) + '亿';
+        }
+
+        function updateRanking(sectors) {
+            const list = document.getElementById('rankingList');
+            const sorted = [...sectors].sort((a, b) => b.final_flow - a.final_flow);
+            const displayList = currentTab === 'inflow'
+                ? sorted.filter(s => s.final_flow > 0).slice(0, 15)
+                : sorted.filter(s => s.final_flow < 0).slice().reverse().slice(0, 15);
+
+            list.innerHTML = displayList.map((sector, index) => {
+                const isPositive = sector.final_flow >= 0;
+                const valueClass = isPositive ? 'positive' : 'negative';
+                const sign = isPositive ? '+' : '';
+                const topClass = index < 3 ? `top${index + 1}` : '';
+
+                return `
+                    <div class="ranking-item">
+                        <div class="rank-num ${topClass}">${index + 1}</div>
+                        <div class="rank-name">${sector.name}</div>
+                        <div class="rank-value ${valueClass}">${sign}${sector.final_flow.toFixed(2)}亿</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateHeader(data) {
+            document.getElementById('titleDate').textContent = data.date + ' 资金流向';
+            document.getElementById('updateTime').textContent = '更新: ' + data.time;
+
+            const statusEl = document.getElementById('tradingStatus');
+            const statusText = document.getElementById('statusText');
+
+            if (data.is_trading) {
+                statusEl.className = 'trading-status active';
+                statusText.textContent = '交易中';
+            } else {
+                statusEl.className = 'trading-status inactive';
+                statusText.textContent = '休市中';
+            }
+        }
+
+        async function fetchData() {
+            showLoading();
+            try {
+                const url = useMockData
+                    ? `${API_BASE}/api/fund-flow?mock=true`
+                    : `${API_BASE}/api/fund-flow`;
+
+                const response = await fetch(url);
+                const data = await response.json();
+                currentData = data;
+
+                updateHeader(data);
+                updateChart(data);
+                updateStats(data.sectors);
+                updateRanking(data.sectors);
+            } catch (error) {
+                console.error('获取数据失败:', error);
+                if (!useMockData) {
+                    useMockData = true;
+                    fetchData();
+                }
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function refreshData() {
+            const btn = document.getElementById('refreshBtn');
+            if (btn.classList.contains('loading')) return;
+
+            btn.classList.add('loading');
+            // GitHub Pages 静态版本：重新生成模拟数据
+            const data = generateData();
+            applyData(data);
+            setTimeout(() => btn.classList.remove('loading'), 500);
+        }
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.getElementById('inflowTab').classList.toggle('active', tab === 'inflow');
+            document.getElementById('outflowTab').classList.toggle('active', tab === 'outflow');
+
+            if (currentData) {
+                updateRanking(currentData.sectors);
+            }
+        }
+
+        function showLoading() {
+            document.getElementById('loadingMask').classList.add('show');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingMask').classList.remove('show');
+        }
+
+        function showLoading() {
+            document.getElementById('loadingMask').classList.add('show');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingMask').classList.remove('show');
+        }
+
+        function init() {
+            initChart();
+            const data = generateData();
+            applyData(data);
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
