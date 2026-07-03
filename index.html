@@ -811,11 +811,7 @@
                 const sectors = await fetchSectorList();
                 if (sectors.length === 0) throw new Error('无数据');
 
-                const topIn = sectors.slice(0, 15);
-                const topOut = sectors.slice(-15).reverse();
-                const selected = [...topIn, ...topOut].filter((s, i, arr) =>
-                    arr.findIndex(x => x.code === s.code) === i
-                );
+                const selected = sectors;
 
                 const timesSet = new Set();
                 const sectorsData = [];
