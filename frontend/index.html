@@ -609,11 +609,12 @@
             const series = [];
             const colors = getColorList(sectors);
 
-            sectors.forEach((sector, index) => {
-                const isSelected = selectedSector === sector.name;
-                const hasSelection = selectedSector !== null;
-                const isDimmed = hasSelection && !isSelected;
+            const displaySectors = selectedSector
+                ? sectors.filter(s => s.name === selectedSector)
+                : sectors;
 
+            displaySectors.forEach((sector, index) => {
+                const origIndex = sectors.findIndex(s => s.name === sector.name);
                 series.push({
                     name: sector.name,
                     type: 'line',
@@ -621,21 +622,17 @@
                     smooth: true,
                     symbol: 'none',
                     lineStyle: {
-                        width: isSelected ? 3 : 1.5,
-                        color: colors[index % colors.length],
-                        opacity: isDimmed ? 0.1 : 1
+                        width: selectedSector ? 3 : 1.5,
+                        color: colors[origIndex % colors.length]
                     },
                     emphasis: {
                         focus: 'series',
                         lineStyle: { width: 3 }
                     },
-                    z: isSelected ? 100 : 1
+                    z: 1
                 });
             });
 
-            const displaySectors = selectedSector
-                ? sectors.filter(s => s.name === selectedSector)
-                : sectors;
             const maxVal = Math.max(...displaySectors.map(s => s.final_flow), 0);
             const minVal = Math.min(...displaySectors.map(s => s.final_flow), 0);
             const padding = Math.max(Math.abs(maxVal), Math.abs(minVal)) * 0.15;
@@ -650,8 +647,7 @@
                     textStyle: { color: '#fff', fontSize: 12 },
                     formatter: function(params) {
                         let result = `<div style="font-weight:bold;margin-bottom:6px;">${params[0].axisValue}</div>`;
-                        const sorted = [...params].sort((a, b) => b.value - a.value);
-                        sorted.forEach(param => {
+                        params.forEach(param => {
                             const color = param.value >= 0 ? '#ff4757' : '#2ed573';
                             const sign = param.value >= 0 ? '+' : '';
                             result += `<div style="display:flex;justify-content:space-between;gap:15px;margin:3px 0;">
