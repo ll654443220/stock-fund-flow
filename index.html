@@ -469,6 +469,146 @@
             to { transform: rotate(360deg); }
         }
 
+        /* ========== 历史数据弹窗 ========== */
+        .history-btn {
+            padding: 6px 14px;
+            font-size: 13px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            cursor: pointer;
+            color: #666;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .history-btn:active {
+            background: #f0f0f0;
+        }
+
+        .history-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 20px 10px;
+            overflow-y: auto;
+        }
+
+        .history-overlay.show {
+            display: flex;
+        }
+
+        .history-modal {
+            background: #fff;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 700px;
+            padding: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        }
+
+        .history-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+
+        .history-modal-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .history-close {
+            width: 30px; height: 30px;
+            border: none;
+            background: #f0f0f0;
+            border-radius: 50%;
+            font-size: 18px;
+            cursor: pointer;
+            color: #666;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .history-range-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .range-tab {
+            padding: 5px 14px;
+            font-size: 13px;
+            border: 1px solid #ddd;
+            border-radius: 16px;
+            cursor: pointer;
+            color: #666;
+            background: #fff;
+        }
+
+        .range-tab.active {
+            background: #ff4757;
+            color: #fff;
+            border-color: #ff4757;
+        }
+
+        .history-chart-wrap {
+            width: 100%;
+            height: 320px;
+            margin-bottom: 14px;
+        }
+
+        .history-table-wrap {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            border-radius: 8px;
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .history-table th {
+            position: sticky;
+            top: 0;
+            background: #f8f9fa;
+            padding: 8px 10px;
+            text-align: left;
+            color: #666;
+            font-weight: 600;
+            border-bottom: 1px solid #eee;
+            z-index: 1;
+        }
+
+        .history-table td {
+            padding: 7px 10px;
+            border-bottom: 1px solid #f5f5f5;
+            color: #333;
+        }
+
+        .history-table tr:active {
+            background: #f8f9fa;
+        }
+
+        .history-loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+            font-size: 14px;
+        }
+
         @media (max-width: 480px) {
             #fundFlowChart {
                 height: 420px;
@@ -484,6 +624,10 @@
 
             .stat-value {
                 font-size: 20px;
+            }
+
+            .history-chart-wrap {
+                height: 260px;
             }
         }
     </style>
@@ -503,6 +647,7 @@
             </div>
             <div style="display: flex; gap: 10px; align-items: center;">
                 <span id="updateTime" style="font-size: 12px;">--:--</span>
+                <button class="history-btn" onclick="openHistory()">📅 历史</button>
                 <button class="refresh-btn" id="refreshBtn" onclick="refreshData()">
                     <span>🔄</span>
                     <span>刷新</span>
@@ -547,6 +692,26 @@
 
     <div class="footer">
         数据仅供参考，不构成投资建议
+    </div>
+
+    <!-- 历史数据弹窗 -->
+    <div class="history-overlay" id="historyOverlay" onclick="if(event.target===this)closeHistory()">
+        <div class="history-modal">
+            <div class="history-modal-header">
+                <span class="history-modal-title">📅 历史资金流向</span>
+                <button class="history-close" onclick="closeHistory()">×</button>
+            </div>
+            <div class="history-range-tabs">
+                <div class="range-tab active" onclick="switchRange(5, this)">近5日</div>
+                <div class="range-tab" onclick="switchRange(10, this)">近10日</div>
+                <div class="range-tab" onclick="switchRange(30, this)">近30日</div>
+                <div class="range-tab" onclick="switchRange(60, this)">近60日</div>
+            </div>
+            <div class="history-chart-wrap" id="historyChart"></div>
+            <div class="history-table-wrap" id="historyTableWrap">
+                <div class="history-loading">加载中...</div>
+            </div>
+        </div>
     </div>
 
     <div class="loading-mask" id="loadingMask">
@@ -886,6 +1051,213 @@
             autoRefreshTimer = setInterval(() => {
                 if (isTradingTime()) fetchData();
             }, REFRESH_INTERVAL);
+        }
+
+        // ========== 历史数据功能 ==========
+        let historyChart = null;
+        let historyRange = 5;
+        let historyCache = {};
+
+        function initHistoryChart() {
+            const dom = document.getElementById('historyChart');
+            historyChart = echarts.init(dom);
+            window.addEventListener('resize', () => historyChart && historyChart.resize());
+        }
+
+        function openHistory() {
+            document.getElementById('historyOverlay').classList.add('show');
+            if (!historyChart) {
+                setTimeout(initHistoryChart, 100);
+            }
+            loadHistoryData(historyRange);
+        }
+
+        function closeHistory() {
+            document.getElementById('historyOverlay').classList.remove('show');
+        }
+
+        function switchRange(days, el) {
+            document.querySelectorAll('.range-tab').forEach(t => t.classList.remove('active'));
+            el.classList.add('active');
+            historyRange = days;
+            loadHistoryData(days);
+        }
+
+        async function fetchDailyFlow(secid, days) {
+            const url = `${EASTMONEY_API}/stock/fflow/kline/get?lmt=${days}&klt=101&secid=${secid}&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63&ut=b2884a393a59ad64002292a3e90d46a5`;
+            try {
+                const resp = await fetch(url);
+                const json = await resp.json();
+                if (!json.data || !json.data.klines) return [];
+                return json.data.klines.map(line => {
+                    const parts = line.split(',');
+                    return {
+                        date: parts[0],
+                        mainNet: parseFloat(parts[1]) / 100000000,
+                    };
+                });
+            } catch (e) {
+                return [];
+            }
+        }
+
+        async function loadHistoryData(days) {
+            const tableWrap = document.getElementById('historyTableWrap');
+            tableWrap.innerHTML = '<div class="history-loading">加载中...</div>';
+            if (historyChart) historyChart.showLoading({ text: '加载中...', color: '#ff4757', textColor: '#999', maskColor: 'rgba(255,255,255,0.8)' });
+
+            try {
+                let sectors = [];
+                if (currentData && currentData.sectors && currentData.sectors.length > 0) {
+                    sectors = currentData.sectors;
+                } else {
+                    sectors = await fetchSectorList();
+                    sectors = sectors.map(s => ({
+                        name: s.name,
+                        code: s.code,
+                        final_flow: +(s.main_net_inflow / 100000000).toFixed(2),
+                    }));
+                }
+
+                // 取流入前10 + 流出前10
+                const sorted = [...sectors].sort((a, b) => b.final_flow - a.final_flow);
+                const topSectors = [
+                    ...sorted.slice(0, 10),
+                    ...sorted.slice(-10),
+                ].filter((s, i, arr) => arr.findIndex(x => x.code === s.code) === i);
+
+                const dateSet = new Set();
+                const sectorData = {};
+
+                for (const s of topSectors) {
+                    const secid = `90.${s.code}`;
+                    const daily = await fetchDailyFlow(secid, days);
+                    sectorData[s.name] = {};
+                    daily.forEach(d => {
+                        dateSet.add(d.date);
+                        sectorData[s.name][d.date] = d.mainNet;
+                    });
+                }
+
+                const dates = Array.from(dateSet).sort();
+                renderHistoryChart(dates, topSectors, sectorData);
+                renderHistoryTable(dates, topSectors, sectorData);
+            } catch (err) {
+                console.error('历史数据加载失败:', err);
+                tableWrap.innerHTML = '<div class="history-loading">加载失败，请重试</div>';
+            } finally {
+                if (historyChart) historyChart.hideLoading();
+            }
+        }
+
+        function renderHistoryChart(dates, sectors, sectorData) {
+            if (!historyChart) return;
+
+            const series = sectors.map(s => ({
+                name: s.name,
+                type: 'bar',
+                stack: 'fund',
+                data: dates.map(d => sectorData[s.name][d] !== undefined ? +sectorData[s.name][d].toFixed(2) : null),
+                itemStyle: {
+                    color: s.final_flow >= 0 ? '#ff4757' : '#2ed573',
+                },
+            }));
+
+            const option = {
+                backgroundColor: '#fff',
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: { type: 'shadow' },
+                    backgroundColor: 'rgba(50,50,50,0.9)',
+                    borderColor: 'transparent',
+                    textStyle: { color: '#fff', fontSize: 12 },
+                    formatter: function(params) {
+                        let result = `<div style="font-weight:bold;margin-bottom:6px;">${params[0].axisValue}</div>`;
+                        const sorted = [...params].filter(p => p.value !== null).sort((a, b) => b.value - a.value);
+                        sorted.forEach(p => {
+                            const color = p.value >= 0 ? '#ff4757' : '#2ed573';
+                            const sign = p.value >= 0 ? '+' : '';
+                            result += `<div style="display:flex;justify-content:space-between;gap:15px;margin:3px 0;">
+                                <span>${p.marker}${p.seriesName}</span>
+                                <span style="color:${color};font-weight:600;">${sign}${p.value.toFixed(2)}亿</span>
+                            </div>`;
+                        });
+                        return result;
+                    }
+                },
+                legend: { show: false },
+                grid: { left: '15%', right: '5%', top: '5%', bottom: '12%' },
+                xAxis: {
+                    type: 'category',
+                    data: dates,
+                    axisLabel: { color: '#999', fontSize: 11, rotate: 30 },
+                    axisLine: { lineStyle: { color: '#e0e0e0' } },
+                },
+                yAxis: {
+                    type: 'value',
+                    axisLabel: { color: '#999', fontSize: 11, formatter: v => v + '亿' },
+                    splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } },
+                    axisLine: { show: false },
+                    axisTick: { show: false },
+                },
+                dataZoom: [{ type: 'inside', xAxisIndex: [0], start: 0, end: 100 }],
+                series: series,
+            };
+
+            historyChart.setOption(option, true);
+        }
+
+        function renderHistoryTable(dates, sectors, sectorData) {
+            const wrap = document.getElementById('historyTableWrap');
+            const recentDates = dates.slice(-10).reverse();
+
+            let html = '<table class="history-table"><thead><tr><th>板块</th>';
+            recentDates.forEach(d => {
+                const short = d.substring(5);
+                html += `<th>${short}</th>`;
+            });
+            html += '<th>合计</th></tr></thead><tbody>';
+
+            const totals = {};
+            recentDates.forEach(d => totals[d] = 0);
+
+            sectors.forEach(s => {
+                let rowSum = 0;
+                html += `<tr><td style="font-weight:600;">${s.name}</td>`;
+                recentDates.forEach(d => {
+                    const val = sectorData[s.name][d];
+                    if (val !== undefined) {
+                        const v = +val.toFixed(2);
+                        rowSum += v;
+                        totals[d] += v;
+                        const cls = v >= 0 ? 'color:#ff4757' : 'color:#2ed573';
+                        const sign = v >= 0 ? '+' : '';
+                        html += `<td style="${cls}">${sign}${v.toFixed(2)}</td>`;
+                    } else {
+                        html += '<td style="color:#ccc;">--</td>';
+                    }
+                });
+                const cls = rowSum >= 0 ? 'color:#ff4757;font-weight:600' : 'color:#2ed573;font-weight:600';
+                const sign = rowSum >= 0 ? '+' : '';
+                html += `<td style="${cls}">${sign}${rowSum.toFixed(2)}</td></tr>`;
+            });
+
+            // 合计行
+            html += '<tr style="background:#f8f9fa;font-weight:700;"><td>每日合计</td>';
+            let grandTotal = 0;
+            recentDates.forEach(d => {
+                const t = +totals[d].toFixed(2);
+                grandTotal += t;
+                const cls = t >= 0 ? 'color:#ff4757' : 'color:#2ed573';
+                const sign = t >= 0 ? '+' : '';
+                html += `<td style="${cls}">${sign}${t.toFixed(2)}</td>`;
+            });
+            const cls = grandTotal >= 0 ? 'color:#ff4757' : 'color:#2ed573';
+            const sign = grandTotal >= 0 ? '+' : '';
+            html += `<td style="${cls}">${sign}${grandTotal.toFixed(2)}</td></tr>';
+
+            html += '</tbody></table>';
+            wrap.innerHTML = html;
         }
 
         function init() {
