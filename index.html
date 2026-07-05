@@ -659,7 +659,7 @@
     <div class="chart-container">
         <div class="chart-title">
             <span>资金流向走势</span>
-            <span class="chart-subtitle">单位：亿元</span>
+            <span class="chart-subtitle" id="chartSubtitle">单位：亿元</span>
         </div>
         <div class="selected-info" id="selectedInfo">
             <span class="selected-name" id="selectedName">--</span>
@@ -770,6 +770,23 @@
         function updateChart(data) {
             const times = data.times || [];
             const sectors = data.sectors || [];
+
+            // 无数据时显示提示
+            if (times.length === 0 || sectors.length === 0) {
+                chart.setOption({
+                    backgroundColor: '#fff',
+                    title: {
+                        text: '暂无数据（休市或网络异常）',
+                        left: 'center',
+                        top: 'center',
+                        textStyle: { color: '#999', fontSize: 14, fontWeight: 'normal' }
+                    },
+                    xAxis: { show: false },
+                    yAxis: { show: false },
+                    series: []
+                }, true);
+                return;
+            }
 
             const series = [];
             const colors = getColorList(sectors);
@@ -985,10 +1002,12 @@
 
                 const timesSet = new Set();
                 const sectorsData = [];
+                let intradayEmpty = true;
 
                 for (const s of selected) {
                     const secid = `90.${s.code}`;
                     const { times, values } = await fetchIntradayFlow(secid);
+                    if (times.length > 0) intradayEmpty = false;
                     times.forEach(t => timesSet.add(t));
                     sectorsData.push({
                         name: s.name,
@@ -999,7 +1018,20 @@
                     });
                 }
 
-                const times = Array.from(timesSet).sort();
+                let times = Array.from(timesSet).sort();
+
+                // 分时数据为空（休市）时，回退用日K最近5日数据画走势
+                if (intradayEmpty) {
+                    const dailyTimesSet = new Set();
+                    for (const s of sectorsData) {
+                        const secid = `90.${s.code}`;
+                        const daily = await fetchDailyFlow(secid, 5);
+                        s.flow_data = daily.map(d => +d.mainNet.toFixed(2));
+                        daily.forEach(d => dailyTimesSet.add(d.date));
+                    }
+                    times = Array.from(dailyTimesSet).sort();
+                }
+
                 sectorsData.sort((a, b) => b.final_flow - a.final_flow);
 
                 const now = new Date();
@@ -1012,6 +1044,7 @@
                     is_trading: isTradingTime(),
                     times: times,
                     sectors: sectorsData,
+                    isIntraday: !intradayEmpty,
                 };
 
                 currentData = data;
@@ -1019,9 +1052,11 @@
                 updateChart(data);
                 updateStats(sectorsData);
                 updateRanking(sectorsData);
+                const subEl = document.getElementById('chartSubtitle');
+                subEl.textContent = data.isIntraday ? '分时·单位：亿元' : '近5日·单位：亿元';
             } catch (err) {
                 console.error('获取真实数据失败:', err);
-                alert('获取数据失败，请刷新重试');
+                updateChart({ times: [], sectors: [], isIntraday: false });
             } finally {
                 hideLoading();
             }
