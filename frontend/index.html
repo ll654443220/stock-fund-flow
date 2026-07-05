@@ -937,15 +937,20 @@
 
         async function fetchSectorList() {
             const url = `${EASTMONEY_API}/clist/get?pn=1&pz=50&po=1&np=1&ut=b2884a393a59ad64002292a3e90d46a5&fltt=2&invt=2&fid=f62&fs=m:90+t:2&fields=${FIELDS}`;
-            const resp = await fetch(url);
-            const json = await resp.json();
-            if (!json.data || !json.data.diff) return [];
-            return json.data.diff.map(item => ({
-                code: item.f12,
-                name: item.f14,
-                main_net_inflow: item.f62 || 0,
-                change_percent: item.f3 || 0,
-            }));
+            try {
+                const resp = await fetch(url);
+                const json = await resp.json();
+                if (!json.data || !json.data.diff) return [];
+                return json.data.diff.map(item => ({
+                    code: item.f12,
+                    name: item.f14,
+                    main_net_inflow: item.f62 || 0,
+                    change_percent: item.f3 || 0,
+                }));
+            } catch (e) {
+                console.error('fetchSectorList error:', e);
+                return [];
+            }
         }
 
         async function fetchIntradayFlow(secid) {
@@ -1097,6 +1102,7 @@
                     };
                 });
             } catch (e) {
+                console.error('fetchDailyFlow error:', e);
                 return [];
             }
         }
@@ -1119,7 +1125,10 @@
                     }));
                 }
 
-                // 取流入前10 + 流出前10
+                if (sectors.length === 0) {
+                    throw new Error('暂无板块数据');
+                }
+
                 const sorted = [...sectors].sort((a, b) => b.final_flow - a.final_flow);
                 const topSectors = [
                     ...sorted.slice(0, 10),
@@ -1140,11 +1149,20 @@
                 }
 
                 const dates = Array.from(dateSet).sort();
+                
+                if (dates.length === 0) {
+                    throw new Error('暂无历史数据');
+                }
+
                 renderHistoryChart(dates, topSectors, sectorData);
                 renderHistoryTable(dates, topSectors, sectorData);
             } catch (err) {
                 console.error('历史数据加载失败:', err);
-                tableWrap.innerHTML = '<div class="history-loading">加载失败，请重试</div>';
+                tableWrap.innerHTML = `<div class="history-loading">${err.message || '加载失败，请重试'}</div>`;
+                if (historyChart) {
+                    historyChart.hideLoading();
+                    historyChart.setOption({ series: [] }, true);
+                }
             } finally {
                 if (historyChart) historyChart.hideLoading();
             }
