@@ -1133,7 +1133,7 @@
                     const parts = line.split(',');
                     return {
                         date: parts[0],
-                        mainNet: parseFloat(parts[1]) / 100000000,
+                        mainNet: parseFloat(parts[4]) / 100000000,
                     };
                 });
             } catch (e) {
